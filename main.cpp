@@ -138,6 +138,20 @@ void simdImage(short row, short col, int *r, int *g, int *b) {
     }
 }
 
+void approximatedSimdImage(short row, short col, int *r, int *g, int *b) {
+
+    /*
+     * Here the work is done 8 pixels at a time, in order to take advantage of SIMD instructions.
+     * The results are directly loaded into the respective arrays 256 bits at a time.
+     */
+
+    for (int i = 0; i < row * col / 8; i++) {
+        _mm256_storeu_si256((__m256i *) &r[i * 8], _mm256_set1_epi32(256 * (8 * i + 3) / (row * col)));
+        _mm256_storeu_si256((__m256i *) &g[i * 8], _mm256_set1_epi32(256 * ((8 * i + 3) % col) / col));
+        _mm256_storeu_si256((__m256i *) &b[i * 8], _mm256_set1_epi32(128));
+    }
+}
+
 void threadedSimdImage(short row, short col, int *r, int *g, int *b) {
 
     // This approach combines threading and SIMD to achieve up to x10 speedup on the arch that I developed the code on
@@ -186,7 +200,7 @@ long timeIt(const std::string &functionName, void (*func)(short, short, int *, i
     std::cout << fmt::format("Profiling function: {}\n", functionName);
     const unsigned int row = 1080;
     const unsigned int col = 1920;
-    int numberOfSamples = 100;
+    int numberOfSamples = 10;
     std::chrono::nanoseconds avg = std::chrono::nanoseconds::zero();
     std::chrono::nanoseconds min = std::chrono::nanoseconds::max();
     std::chrono::nanoseconds max = std::chrono::nanoseconds::min();
@@ -201,7 +215,7 @@ long timeIt(const std::string &functionName, void (*func)(short, short, int *, i
         std::vector<char> buffer(33554432);
         std::fstream out;
         out.rdbuf()->pubsetbuf(&buffer.front(), static_cast<long>(buffer.size()));
-        out.open(fmt::format("/tmp/{}.ppm", functionName), std::ios::out);
+        out.open(fmt::format("../{}.ppm", functionName), std::ios::out);
         out << fmt::format("P3\n{} {}\n255\n", col, row);
         // time the performance of the approach itself, not the writing to disk
         auto t1 = std::chrono::high_resolution_clock::now();
@@ -230,12 +244,14 @@ int main() {
     auto spTime = static_cast<double>(timeIt("simpleImage", simpleImage));
     auto thTime = static_cast<double>(timeIt("threadedImage", threadedImage));
     auto sdTime = static_cast<double>(timeIt("simdImage", simdImage));
+    auto approxSdTime = static_cast<double>(timeIt("approximatedSimdImage", approximatedSimdImage));
     auto thSdTime = static_cast<double>(timeIt("threadedSimdImage", threadedSimdImage));
 
     std::cout << "================================================================================\n";
-    std::cout << fmt::format("Threaded measured speedup over simple: {0:.3f}\n", spTime / thTime);
-    std::cout << fmt::format("SIMD measured speedup over simple: {0:.3f}\n", spTime / sdTime);
-    std::cout << fmt::format("Threaded + SIMD measured speedup over simple: {0:.3f}\n", spTime / thSdTime);
+    std::cout << fmt::format("Threaded measured speedup over simple: {0:.1f}%\n", spTime / thTime * 100);
+    std::cout << fmt::format("SIMD measured speedup over simple: {0:.1f}%\n", spTime / sdTime * 100);
+    std::cout << fmt::format("Approximated SIMD measured speedup over simple: {0:.1f}%\n", spTime / approxSdTime * 100);
+    std::cout << fmt::format("Threaded + SIMD measured speedup over simple: {0:.1f}%\n", spTime / thSdTime * 100);
     std::cout << "================================================================================\n";
 
     return 0;
